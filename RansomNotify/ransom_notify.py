@@ -43,6 +43,11 @@ COUNTRIES = {
     "UY": "Uruguay 🇺🇾", "VE": "Venezuela 🇻🇪", "VN": "Vietnam 🇻🇳", "YE": "Yemen 🇾🇪"
 }
 
+def check_api_status():
+    api_url = "https://api.ransomware.live/v2/recentvictims"
+    headers = {"accept": "application/json"}
+    return requests.get(api_url, headers=headers).status_code == 200
+
 def setup_database():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -88,13 +93,16 @@ def save_victim(victim):
                victim["post_url"], victim["website"], victim["published"]))
         conn.commit()
     except sqlite3.IntegrityError:
-        print(f" [!] Victim already exists in the database: {victim['post_title']}")
+        print(f" [!] Victim already exists in the database: {victim['post_title']}") # debug
     finally:
         conn.close()
 
 def send_telegram_notification(victim):
-
+    api_status = check_api_status()
+    
     published_date = victim.get('published', 'Fecha no disponible')
+    date_obj = datetime.strptime(published_date, "%Y-%m-%d %H:%M:%S.%f")
+    formatted_date = date_obj.strftime("%d/%m/%Y %H:%M:%S")
     group_name = victim.get('group_name', 'Grupo no disponible')
     country_code = victim.get('country', 'Unknown')
     country_name = COUNTRIES.get(country_code, country_code)
@@ -104,7 +112,7 @@ def send_telegram_notification(victim):
 
     message = (
         f"🆕 New ransomware victim detected:\n\n"
-        f"📅 Date: {published_date}\n"
+        f"📅 Date: {formatted_date}\n"
         f"🔴 Group: {group_name}\n"
         f"🌍 Country: {country_name}\n"
         f"📌 Victim: {post_title}\n"
@@ -112,7 +120,11 @@ def send_telegram_notification(victim):
         f"🧅 Onion Link: {post_url}"
     )
 
-    data = {"chat_id": CHAT_ID, "text": message}
+    now = datetime.now()
+    curr_date = now.strftime("%d/%m/%Y %H:%M:%S")
+    message2 = f"⚠️ Ransomware.Live API is apparently down! 🛑\n🕒 Timestamp: {curr_date}"
+
+    data = {"chat_id": CHAT_ID, "text": message if api_status else message2}
     requests.post(TELEGRAM_URL, data=data)
 
 def is_victim_in_database(published_date):
@@ -134,8 +146,6 @@ def main():
             if not is_victim_in_database(victim["published"]):
                 send_telegram_notification(victim)
                 save_victim(victim)
-            else:
-                print(f"[!] Victim already exists in the database: {victim['post_title']}")
-
+            
 if __name__ == "__main__":
     main()
